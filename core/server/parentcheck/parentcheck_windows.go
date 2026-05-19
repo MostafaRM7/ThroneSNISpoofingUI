@@ -4,7 +4,7 @@ package parentcheck
 
 import (
 	"fmt"
-
+    "strings"
 	"golang.org/x/sys/windows"
 )
 
