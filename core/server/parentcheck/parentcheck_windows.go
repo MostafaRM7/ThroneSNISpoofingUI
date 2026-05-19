@@ -9,6 +9,10 @@ import (
 )
 
 func getDrivePath(devicePath string) string {
+	if len(devicePath) >= 3 && devicePath[1] == ':' && devicePath[2] == `\` {
+		return devicePath
+	}
+
 	size, err := windows.GetLogicalDriveStrings(0, nil)
 	if err != nil || size == 0 {
 		return devicePath
