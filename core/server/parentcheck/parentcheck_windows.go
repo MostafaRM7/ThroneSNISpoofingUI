@@ -9,7 +9,7 @@ import (
 )
 
 func getDrivePath(devicePath string) string {
-	if len(devicePath) >= 3 && devicePath[1] == ':' && devicePath[2] == `\` {
+	if len(devicePath) >= 3 && devicePath[1] == ':' && devicePath[2] == '\\' {
 		return devicePath
 	}
 
