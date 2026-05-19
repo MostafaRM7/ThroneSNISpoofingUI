@@ -35,12 +35,12 @@ func CheckParentProcess() {
 
 	if runtime.GOOS == "windows" {
 		if !strings.EqualFold(parentDir, selfDir) || !strings.EqualFold(parentBase, "Throne.exe") {
-			log.Fatalf("parent check failed: unexpected parent %q", parentPath)
+			log.Fatalf("parent check failed: unexpected parent %q (self %q)", parentPath, selfPath)
 		}
 		return
 	}
 
 	if parentDir != selfDir || parentBase != "Throne" {
-		log.Fatalf("parent check failed: unexpected parent %q", parentPath)
+		log.Fatalf("parent check failed: unexpected parent %q (self %q)", parentPath, selfPath)
 	}
 }
