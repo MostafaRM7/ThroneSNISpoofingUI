@@ -59,6 +59,7 @@ namespace Configs {
             {"system_proxy_enabled",          &remember_system_proxy},
             {"tun_mode_enabled",              &remember_tun},
             {"reset_proxy_on_disable_sp", &reset_proxy_on_disable_sp},
+            {"snispoof_enabled",            &snispoof_enabled},
         };
 
         intMap = {
@@ -85,6 +86,9 @@ namespace Configs {
             {"sniffing_mode",          &sniffing_mode},
             {"ruleset_mirror",         &ruleset_mirror},
             {"core_dns_in_port",       &core_dns_in_port},
+            {"snispoof_listen_port",   &snispoof_listen_port},
+            {"snispoof_connect_port",  &snispoof_connect_port},
+            {"snispoof_start_timeout", &snispoof_start_timeout_ms},
         };
 
         stringMap = {
@@ -135,6 +139,12 @@ namespace Configs {
             {"warp_ep",                    &warp_ep},
             {"inbound_user",               &inbound_user},
             {"inbound_pass",               &inbound_pass},
+            {"snispoof_binary_path",       &snispoof_binary_path},
+            {"snispoof_config_json",       &snispoof_config_json},
+            {"snispoof_listen_host",       &snispoof_listen_host},
+            {"snispoof_connect_ip",        &snispoof_connect_ip},
+            {"snispoof_fake_sni",          &snispoof_fake_sni},
+            {"snispoof_cli_args",          &snispoof_cli_args},
         };
 
         stringListMap = {

@@ -1,22 +1,133 @@
-# Throne (Formerly Nekoray)
+# Throne SNI
 
-Qt based Desktop cross-platform GUI proxy utility, empowered by [Sing-box](https://github.com/SagerNet/sing-box)
+Throne SNI is a Linux-focused build of [Throne](https://github.com/throneproj/Throne) with bundled [SNI-Spoofing-Go](https://github.com/aleskxyz/SNI-Spoofing-Go) integration.
 
-Supports Windows 11/10/8/7 / Linux / MacOS out of the box.
+It keeps Throne as the base Qt desktop proxy GUI, powered by sing-box and Xray/V2Ray support, and adds a packaged local SNI spoofing helper so users can install one `.deb` and run everything offline without downloading extra binaries.
 
-<img width="1123" height="799" alt="image" src="https://github.com/user-attachments/assets/a0beedf1-f003-46fa-80a3-bb63002b543f" />
+## What this build adds
 
-### Note on MacOS releases
-Apple platforms have a very strict security policy and since Throne does not have a signed certificate, you will have to remove the quarantine using `xattr -d com.apple.quarantine /path/to/throne.app`. Also to get the built-in privilege escalation to work, `Terminal` should have the `Full Disk` access.
+Compared with upstream Throne, this build adds:
 
-### GitHub Releases (Portable ZIP)
+- A bundled Linux amd64 SNI-Spoofing-Go binary.
+- A bundled default SNI config template.
+- A main-window **SNI Spoof** toggle and running/stopped status indicator.
+- A profile context-menu action: **Connect via SNI Spoof**.
+- Runtime SNI config generation.
+- Debian packaging under the package name `throne-sni`.
+- A separate launcher command: `throne-sni`.
+- Side-by-side install paths so upstream Throne can remain installed.
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Mahdi-zarei/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/throneproj/Throne/releases)
+## How the SNI integration works
 
-### RPM repository
-[Throne RPM repository](https://parhelia512.github.io/) for Fedora/RHEL and openSUSE/SLE.
+SNI-Spoofing-Go runs as a local helper process. By default it listens on:
+
+```text
+127.0.0.1:40443
+```
+
+When you choose **Connect via SNI Spoof** on a profile, Throne SNI:
+
+1. Reads the selected profile's original host and port.
+2. Writes a runtime SNI-Spoofing-Go config.
+3. Starts the bundled SNI helper.
+4. Temporarily starts the selected profile through the local SNI listener.
+5. Does **not** permanently modify the saved profile.
+6. Stops the helper when the SNI-backed profile stops or the app exits.
+
+The SNI helper needs raw socket permission on Linux. The Debian package depends on `libcap2-bin` and runs this during install:
+
+```sh
+setcap cap_net_raw+ep /opt/throne-sni/snispoof/snispoof || true
+```
+
+That allows the bundled helper to run without launching the whole GUI with `sudo`.
+
+## Installation
+
+Install the local release package:
+
+```bash
+sudo dpkg -i throne-sni-v0.1.0-debian-amd64.deb
+```
+
+If `dpkg` reports missing dependencies, repair them with:
+
+```bash
+sudo apt -f install
+```
+
+Launch the app:
+
+```bash
+throne-sni
+```
+
+The package installs side-by-side with upstream Throne.
+
+## Installed paths
+
+The Debian package uses these paths:
+
+```text
+/opt/throne-sni/Throne
+/opt/throne-sni/ThroneCore
+/opt/throne-sni/snispoof/snispoof
+/opt/throne-sni/snispoof/snispoof-config.json
+/usr/bin/throne-sni
+/usr/share/applications/throne-sni.desktop
+/usr/share/metainfo/io.github.flashboy.ThroneSNI.metainfo.xml
+$HOME/.config/throne-sni
+```
+
+The GUI executable remains named `Throne` internally to minimize divergence from upstream Throne. The package, launcher, desktop entry, and release artifacts are named `throne-sni`.
+
+## Using SNI Spoof
+
+### Configure SNI Spoof
+
+Open:
+
+```text
+Settings → Basic Settings → Core → SNI Spoof
+```
+
+Available settings include:
+
+- Enable SNI Spoof integration.
+- Binary path override.
+- Listen host and port.
+- Default connect host/IP and port.
+- Fake SNI.
+- CLI arguments.
+- Config preview.
+
+### Start the helper directly
+
+Use the main-window **SNI Spoof** toggle. The status label shows whether the helper is running.
+
+### Connect a profile through SNI Spoof
+
+Right-click one profile and choose:
+
+```text
+Connect via SNI Spoof
+```
+
+The action requires a profile with a valid server address and port.
+
+## Default local proxy
+
+The default mixed local proxy bind for Throne SNI is:
+
+```text
+0.0.0.0:2080
+```
+
+This is the mixed SOCKS+HTTP inbound inherited from Throne/sing-box.
 
 ## Supported protocols
+
+Throne SNI preserves upstream Throne protocol support, including:
 
 - SOCKS
 - HTTP(S)
@@ -32,48 +143,158 @@ Apple platforms have a very strict security policy and since Throne does not hav
 - Juicity
 - TrustTunnel
 - ShadowTLS
-- Wireguard
+- WireGuard
 - SSH
-- Custom Outbound
-- Custom Config
-- Chaining outbounds
-- Extra Core
+- Custom outbound
+- Custom config
+- Chained outbounds
+- Extra core
 
-## Subscription Formats
+## Subscription formats
 
-Various formats are supported, including share links, various JSON representation of Sing-box configs, and v2rayN link format as well as limited support for Shadowsocks and Clash formats.
+Throne SNI inherits Throne's subscription support, including share links, sing-box JSON representations, v2rayN links, and limited Shadowsocks/Clash support.
+
+## Build from source
+
+### Required tools
+
+Install the typical Ubuntu build dependencies:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  cmake \
+  g++ \
+  ninja-build \
+  qt6-base-dev \
+  qt6-tools-dev \
+  qt6-tools-dev-tools \
+  qt6-l10n-tools \
+  libqt6svg6-dev \
+  libglx-dev \
+  libgl1-mesa-dev \
+  golang-go \
+  protobuf-compiler \
+  git \
+  curl \
+  wget \
+  lld \
+  libcap2-bin \
+  desktop-file-utils
+```
+
+Install Go protobuf plugins:
+
+```bash
+export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+go install github.com/golang/protobuf/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+### Build GUI
+
+```bash
+cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+curl -fLso build/srslist.h \
+  "https://raw.githubusercontent.com/throneproj/routeprofiles/rule-set/srslist.h"
+cmake --build build
+```
+
+If GitHub is only reachable through a SOCKS5 proxy, use:
+
+```bash
+curl --socks5-hostname 127.0.0.1:2080 -fLso build/srslist.h \
+  "https://raw.githubusercontent.com/throneproj/routeprofiles/rule-set/srslist.h"
+```
+
+### Build core and package
+
+The CI-style Go core build also needs the Cronet/NaïveProxy toolchain environment used by upstream Throne. Once `deployment/linux-amd64` contains `Throne`, `ThroneCore`, `Throne.png`, and `updater`, build the Debian package with:
+
+```bash
+script/build_throne_sni_deb.sh 0.1.0
+```
+
+The output package is:
+
+```text
+deployment/throne-sni.deb
+```
+
+The release artifact is renamed to:
+
+```text
+deployment/throne-sni-v0.1.0-debian-amd64.deb
+```
+
+## Release artifacts
+
+For `v0.1.0`, the local release includes:
+
+```text
+throne-sni-v0.1.0-debian-amd64.deb
+throne-sni-v0.1.0-debian-amd64.deb.sha256
+RELEASE_NOTES-v0.1.0.md
+```
+
+## Linux notes
+
+### TUN and privileged features
+
+Creating and managing a system TUN interface requires elevated privileges. Throne SNI inherits Throne's Linux privilege behavior for TUN/DNS features.
+
+### Raw sockets for SNI-Spoofing-Go
+
+The bundled SNI helper needs `CAP_NET_RAW`. The package applies it automatically with `setcap`. To verify after install:
+
+```bash
+getcap /opt/throne-sni/snispoof/snispoof
+```
+
+Expected output:
+
+```text
+/opt/throne-sni/snispoof/snispoof cap_net_raw=ep
+```
+
+### System proxy recovery
+
+If the app is force-quit while **System Proxy** is enabled, it may not reset the system proxy. Reopen the app, enable **System Proxy**, then disable it to reset system settings.
+
+## Migration from test builds
+
+Earlier local test packages were named `customized-throne` and used:
+
+```text
+/opt/customized-throne
+/usr/bin/customized-throne
+$HOME/.config/customized-throne
+```
+
+The release package is now named `throne-sni` and uses separate paths. If you want to keep old settings, copy them manually:
+
+```bash
+cp -a "$HOME/.config/customized-throne" "$HOME/.config/throne-sni"
+```
 
 ## Credits
 
+Throne SNI combines and builds on these projects:
+
+- [Throne](https://github.com/throneproj/Throne)
+- [SNI-Spoofing-Go](https://github.com/aleskxyz/SNI-Spoofing-Go)
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
 - [XTLS/Xray-core](https://github.com/xtls/xray-core)
-- [Qv2ray](https://github.com/Qv2ray/Qv2ray)
 - [Qt](https://www.qt.io/)
+- [Qv2ray](https://github.com/Qv2ray/Qv2ray)
 - [simple-protobuf](https://github.com/tonda-kriz/simple-protobuf)
 - [fkYAML](https://github.com/fktn-k/fkYAML)
 - [quirc](https://github.com/dlbeer/quirc)
 - [QHotkey](https://github.com/Skycoder42/QHotkey)
 - [srombauts/sqlitecpp](https://github.com/srombauts/sqlitecpp)
 
-## FAQ
-**How does this project differ from the original Nekoray?** <br/>
-Nekoray's developer partially abandoned the project on December of 2023, some minor updates were done recently but the project is now officially archived. This project was meant to continue the way of the original project, with lots of improvements, tons of new features and also, removal of obsolete features and simplifications.
+Route profile downloads come from [throneproj/routeprofiles](https://github.com/throneproj/routeprofiles).
 
-**Why does my Anti-Virus detect Throne and/or its Core as malware?** <br/>
-Throne's built-in update functionallity downloads the new release, removes the old files and replaces them with the new ones, which is quite simliar to what malwares do, remove your files and replace them with an encrypted version of your files.
-Also the `System DNS` feature will change your system's DNS settings, which is also considered a dangerous action by some Anti-Virus applications.
+## License
 
-**Is setting the `SUID` bit really needed on Linux?** <br/>
-To create and manage a system TUN interface, root access is required, without it, you will have to grant the Core some `Cap_xxx_admin` and still, need to enter your password 3 to 4 times per TUN activation. You can also opt to disable the automatic privilege escalation in `Basic Settings`->`Security`, but note that features that require root access will stop working unless you manually grant the needed permissions.
-
-**Why does my internet stop working after I force quit Throne?** <br/>
-If Throne is force-quit while `System proxy` is enabled, the process ends immediately and Throne cannot reset the proxy. <br/>
-Solution:
-- Always close Throne normally.
-- If you force quit by accident, open Throne again, enable `System proxy`, then disable it- this will reset the settings.
-
-**Where are the downloadable route profiles/rulesets coming from?**<br/>
-They are located at the [routeprofiles](https://github.com/throneproj/routeprofiles) repository.
-
-**How does "Throne-\<version\>-debian-system-qt-x64.deb" differ from "Throne-\<version\>-debian-x64.deb" and why is the latter 3 times heavier then the former?**<br/>
-The first one does not pack the Qt libraries and relies on those installed on the host. The second one packs everything needed with itself, thus being heavier. The reason the first one exists is that on legacy systems provided Qt libraries use unsupported system features. If a graphical interface fails to load for your system, you may try to download the system-qt version and install fitting Qt libraries from your package manager or compile them from source.
+The Throne codebase is licensed under GPL-3.0-or-later. Bundled third-party components keep their own upstream licenses.

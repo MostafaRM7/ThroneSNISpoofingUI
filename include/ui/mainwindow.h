@@ -25,6 +25,7 @@
 #include <QTextDocument>
 #include <QShortcut>
 #include <QCheckBox>
+#include <QLabel>
 #include <QSemaphore>
 #include <QMutex>
 #include <QThreadPool>
@@ -41,6 +42,7 @@
 
 namespace Configs_sys {
     class CoreProcess;
+    class SniSpoofProcess;
 }
 
 QT_BEGIN_NAMESPACE
@@ -70,6 +72,8 @@ public:
     void update_traffic_graph(int proxyDl, int proxyUp, int directDl, int directUp);
 
     void profile_start(int _id = -1);
+
+    void profile_start_via_snispoof(int _id = -1);
 
     void profile_stop(bool crash = false, bool block = false, bool manual = false);
 
@@ -179,6 +183,10 @@ private:
     std::atomic<bool> currentUnderTest = false;
     //
     Configs_sys::CoreProcess *core_process = nullptr;
+    Configs_sys::SniSpoofProcess *snispoof_process = nullptr;
+    QCheckBox *snispoof_toggle = nullptr;
+    QLabel *snispoof_status = nullptr;
+    bool runningViaSniSpoof = false;
     QMutex coreProcessMutex; // serializes core_process init (DS_cores) vs IPC newConnection (UI)
     QLocalServer *core_server = nullptr;
     bool rpc_started = false;
@@ -307,6 +315,20 @@ private:
     void iptest_current_group(const QList<int>& profileIDs);
 
     void stopTests();
+
+    void setupSniSpoofUi();
+
+    void updateSniSpoofStatus();
+
+    QString resolveSniSpoofBinaryPath() const;
+
+    QString resolveSniSpoofConfigPath() const;
+
+    bool writeSniSpoofConfig(const QString &connectHost, int connectPort, QString &configPath, QString &error) const;
+
+    bool startSniSpoof(const QString &connectHost, int connectPort, QString &error);
+
+    void stopSniSpoof(bool block = false);
 
     void runURLTest(const QString& config, const QString& xrayConfig, bool useDefault, const QStringList& outboundTags, const QMap<QString, int>& tag2entID, int entID = -1);
 

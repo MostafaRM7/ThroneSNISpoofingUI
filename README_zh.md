@@ -1,6 +1,8 @@
-# Throne (原先的 Nekoray)
+# Throne SNI
 
-基于 Qt 的跨平台的桌面 GUI 代理客户端，授权自 [Sing-box](https://github.com/SagerNet/sing-box)
+> 注意：此分支是基于 Throne 的 SNI-Spoofing-Go 集成版本。当前以英文 `README.md` 为准；本中文文档可能落后于英文说明。
+
+基于 Qt 的跨平台的桌面 GUI 代理客户端，授权自 [Sing-box](https://github.com/SagerNet/sing-box)，并集成 SNI-Spoofing-Go。
 
 开箱支持 Windows / Linux / MacOS 。对于 Windows 7 / 8 / 8.1，建议用 [nekoray-win7](https://github.com/parhelia512/nekoray-win7)
 

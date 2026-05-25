@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(Throne VERSION 0.1)
+project(Throne VERSION 0.1.0)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -101,6 +101,8 @@ set(PROJECT_SOURCES
 
         include/sys/Process.hpp
         src/sys/Process.cpp
+        include/sys/SniSpoofProcess.hpp
+        src/sys/SniSpoofProcess.cpp
 
         include/ui/setting/ThemeManager.hpp
         src/ui/setting/ThemeManager.cpp

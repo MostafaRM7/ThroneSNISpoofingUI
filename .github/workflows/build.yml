@@ -291,6 +291,10 @@ jobs:
           mv Throne.deb Throne-${{ github.event.inputs.tag }}-debian-amd64.deb
           rm -rf Throne
           ####
+          bash ../script/pack_throne_sni_debian.sh ${{ github.event.inputs.tag }} amd64
+          mv throne-sni.deb throne-sni-${{ github.event.inputs.tag }}-debian-amd64.deb
+          rm -rf throne-sni
+          ####
           bash ../script/pack_debian.sh ${{ github.event.inputs.tag }} amd64 systemqt
           mv Throne.deb Throne-${{ github.event.inputs.tag }}-debian-amd64-system-qt.deb
           rm -rf Throne

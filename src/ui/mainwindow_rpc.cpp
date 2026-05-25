@@ -839,6 +839,168 @@ void MainWindow::profile_start(int _id) {
     });
 }
 
+void MainWindow::profile_start_via_snispoof(int _id) {
+    if (Configs::dataManager->settingsRepo->prepare_exit) return;
+    if (!Configs::dataManager->settingsRepo->snispoof_enabled) {
+        MessageBoxWarning(tr("SNI Spoof"), tr("SNI Spoof integration is disabled in Settings."));
+        return;
+    }
+
+#ifdef Q_OS_LINUX
+    if (Configs::dataManager->settingsRepo->enable_dns_server && Configs::dataManager->settingsRepo->dns_server_listen_port <= 1024) {
+        if (!get_elevated_permissions()) {
+            MW_show_log(QString("Failed to get admin access, cannot listen on port %1 without it").arg(Configs::dataManager->settingsRepo->dns_server_listen_port));
+            return;
+        }
+    }
+#endif
+
+    auto ents = get_now_selected_list();
+    auto ent = (_id < 0 && !ents.isEmpty()) ? Configs::dataManager->profilesRepo->GetProfile(ents.first()) : Configs::dataManager->profilesRepo->GetProfile(_id);
+    if (ent == nullptr || ent->outbound == nullptr) return;
+
+    if (select_mode) {
+        emit profile_selected(ent->id);
+        select_mode = false;
+        refresh_status();
+        return;
+    }
+
+    auto group = Configs::dataManager->groupsRepo->GetGroup(ent->gid);
+    if (group == nullptr || group->archive) return;
+
+    const QString originalHost = ent->outbound->GetAddress();
+    const int originalPort = ent->outbound->GetPort().toInt();
+    if (originalHost.isEmpty() || originalPort <= 0) {
+        MessageBoxWarning(tr("SNI Spoof"), tr("Connect via SNI Spoof requires a profile with a server address and port."));
+        return;
+    }
+
+    if (!mu_starting.tryLock()) {
+        MessageBoxWarning(software_name, tr("Another profile is starting..."));
+        return;
+    }
+    if (!mu_stopping.tryLock()) {
+        MessageBoxWarning(software_name, tr("Another profile is stopping..."));
+        mu_starting.unlock();
+        return;
+    }
+    mu_stopping.unlock();
+
+    if (!Configs::dataManager->settingsRepo->core_running) {
+        runOnThread(
+            [=, this] {
+                MW_show_log(tr("Try to start the config, but the core has not listened to the RPC port, so restart it..."));
+                core_process->Restart();
+            },
+            DS_cores);
+        mu_starting.unlock();
+        MessageBoxWarning(tr("SNI Spoof"), tr("Core is restarting. Please retry Connect via SNI Spoof once the core is ready."));
+        return;
+    }
+
+    auto restartMsgbox = new QMessageBox(QMessageBox::Question, software_name, tr("If there is no response for a long time, it is recommended to restart the software."),
+                                         QMessageBox::Yes | QMessageBox::No, this);
+    connect(restartMsgbox, &QMessageBox::accepted, this, [=,this] { MW_dialog_message("", "RestartProgram"); });
+    auto restartMsgboxTimer = new MessageBoxTimer(this, restartMsgbox, 10000);
+
+    runOnNewThread([=, this] {
+        if (running != nullptr) {
+            profile_stop(false, false, true);
+            mu_stopping.lock();
+            mu_stopping.unlock();
+        }
+
+        QString sniError;
+        if (!startSniSpoof(originalHost, originalPort, sniError)) {
+            runOnUiThread([=, this] { MessageBoxWarning(tr("SNI Spoof"), sniError); });
+            MW_show_log("<<<<<<<< " + tr("Failed to start SNI Spoof for profile %1").arg(ent->outbound->DisplayTypeAndName()));
+            mu_starting.unlock();
+            runOnUiThread([=] {
+                restartMsgboxTimer->cancel();
+                restartMsgboxTimer->deleteLater();
+                restartMsgbox->deleteLater();
+            });
+            return;
+        }
+
+        const QString localSniHost = Configs::dataManager->settingsRepo->snispoof_listen_host == "0.0.0.0"
+                                      ? QString("127.0.0.1")
+                                      : Configs::dataManager->settingsRepo->snispoof_listen_host;
+        ent->outbound->SetAddress(localSniHost);
+        ent->outbound->SetPort(Configs::dataManager->settingsRepo->snispoof_listen_port);
+        auto result = Configs::BuildSingBoxConfig(ent);
+        ent->outbound->SetAddress(originalHost);
+        ent->outbound->SetPort(originalPort);
+
+        if (!result->error.isEmpty()) {
+            stopSniSpoof(true);
+            runOnUiThread([=, this] { MessageBoxWarning(tr("BuildConfig return error"), result->error); });
+            mu_starting.unlock();
+            runOnUiThread([=] {
+                restartMsgboxTimer->cancel();
+                restartMsgboxTimer->deleteLater();
+                restartMsgbox->deleteLater();
+            });
+            return;
+        }
+
+        MW_show_log(">>>>>>>> " + tr("Starting profile %1 via SNI Spoof").arg(ent->outbound->DisplayTypeAndName()));
+
+        libcore::LoadConfigReq req;
+        req.core_config = QJsonObject2QString(result->coreConfig, true).toStdString();
+        req.tun_ipv4_cidr = result->tunIPv4CIDR.toStdString();
+        req.disable_stats = Configs::dataManager->settingsRepo->disable_traffic_stats;
+        req.xray_config = QJsonObject2QString(result->xrayConfig, true).toStdString();
+        req.need_xray = !result->xrayConfig.isEmpty();
+        if (!result->extraCoreData->path.isEmpty())
+        {
+            req.need_extra_process = true;
+            req.extra_process_path = result->extraCoreData->path.toStdString();
+            req.extra_process_args = result->extraCoreData->args.toStdString();
+            req.extra_process_conf = result->extraCoreData->config.toStdString();
+            req.extra_no_out = result->extraCoreData->noLog;
+        }
+
+        bool rpcOK;
+        QString error = defaultClient->Start(&rpcOK, req);
+        if (!rpcOK || !error.isEmpty()) {
+            stopSniSpoof(true);
+            if (!error.isEmpty()) runOnUiThread([=, this] { MessageBoxWarning(tr("LoadConfig return error"), error); });
+            MW_show_log("<<<<<<<< " + tr("Failed to start profile %1 via SNI Spoof").arg(ent->outbound->DisplayTypeAndName()));
+            mu_starting.unlock();
+            runOnUiThread([=] {
+                restartMsgboxTimer->cancel();
+                restartMsgboxTimer->deleteLater();
+                restartMsgbox->deleteLater();
+            });
+            return;
+        }
+
+        Stats::trafficLooper->SetChainGroups(result->chainGroups);
+        Stats::trafficLooper->loop_enabled = true;
+        Stats::connection_lister->suspend = false;
+
+        Configs::dataManager->settingsRepo->UpdateStartedId(ent->id);
+        running = ent;
+        runningViaSniSpoof = true;
+        set_system_proxy(false);
+
+        runOnUiThread([=, this] {
+            refresh_status();
+            refresh_proxy_list({ent->id});
+            updateSniSpoofStatus();
+        });
+
+        mu_starting.unlock();
+        runOnUiThread([=] {
+            restartMsgboxTimer->cancel();
+            restartMsgboxTimer->deleteLater();
+            restartMsgbox->deleteLater();
+        });
+    });
+}
+
 void MainWindow::profile_stop(bool crash, bool block, bool manual) {
     if (running == nullptr) {
         return;
@@ -893,6 +1055,10 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
             MW_show_log("<<<<<<<< " + tr("Failed to stop, please restart the program."));
         }
 
+        if (runningViaSniSpoof) {
+            stopSniSpoof(true);
+            runningViaSniSpoof = false;
+        }
         if (manual) Configs::dataManager->settingsRepo->UpdateStartedId(-1919);
         running = nullptr;
 

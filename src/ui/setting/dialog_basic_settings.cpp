@@ -8,10 +8,13 @@
 #include "include/global/HTTPRequestHelper.hpp"
 #include "include/global/DeviceDetailsHelper.hpp"
 
+#include <QApplication>
 #include <QStyleFactory>
 #include <QFileDialog>
+#include <QFormLayout>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QIntValidator>
 #include <QTimer>
 #include <QBrush>
 #include <QRegularExpression>
@@ -217,6 +220,8 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     ui->vless_xray_pref->addItems(Configs::Xray::XrayVlessPreferenceString);
     ui->vless_xray_pref->setCurrentIndex(Configs::dataManager->settingsRepo->xray_vless_preference);
 
+    setupSniSpoofSettings();
+
     // NTP
     ui->ntp_enable->setChecked(Configs::dataManager->settingsRepo->enable_ntp);
     ui->ntp_server->setEnabled(Configs::dataManager->settingsRepo->enable_ntp);
@@ -267,6 +272,77 @@ static void highlightRegexLines(QTextEdit *edit) {
         cur.setBlockFormat(fmt);
     }
     edit->blockSignals(false);
+}
+
+QString DialogBasicSettings::defaultSniSpoofBinaryPath() const {
+    return QApplication::applicationDirPath() + "/snispoof/snispoof";
+}
+
+void DialogBasicSettings::setupSniSpoofSettings() {
+    auto *settings = Configs::dataManager->settingsRepo.get();
+    auto *box = new QGroupBox(tr("SNI Spoof"), this);
+    auto *layout = new QFormLayout(box);
+
+    snispoof_enable = new QCheckBox(tr("Enable SNI Spoof integration"), box);
+    snispoof_enable->setChecked(settings->snispoof_enabled);
+    layout->addRow(snispoof_enable);
+
+    auto *pathWidget = new QWidget(box);
+    auto *pathLayout = new QHBoxLayout(pathWidget);
+    pathLayout->setContentsMargins(0, 0, 0, 0);
+    snispoof_binary_path = new QLineEdit(box);
+    snispoof_binary_path->setPlaceholderText(defaultSniSpoofBinaryPath());
+    snispoof_binary_path->setText(settings->snispoof_binary_path);
+    auto *browse = new QPushButton(tr("Browse"), box);
+    pathLayout->addWidget(snispoof_binary_path);
+    pathLayout->addWidget(browse);
+    layout->addRow(tr("Binary path"), pathWidget);
+    connect(browse, &QPushButton::clicked, this, [=, this] {
+        const auto fileName = QFileDialog::getOpenFileName(this, tr("Select SNI-Spoofing-Go binary"), QDir::homePath());
+        if (!fileName.isEmpty()) snispoof_binary_path->setText(fileName);
+    });
+
+    snispoof_listen_host = new QLineEdit(settings->snispoof_listen_host, box);
+    snispoof_listen_port = new QLineEdit(QString::number(settings->snispoof_listen_port), box);
+    snispoof_listen_port->setValidator(new QIntValidator(1, 65535, snispoof_listen_port));
+    layout->addRow(tr("Listen host"), snispoof_listen_host);
+    layout->addRow(tr("Listen port"), snispoof_listen_port);
+
+    snispoof_connect_ip = new QLineEdit(settings->snispoof_connect_ip, box);
+    snispoof_connect_port = new QLineEdit(QString::number(settings->snispoof_connect_port), box);
+    snispoof_connect_port->setValidator(new QIntValidator(1, 65535, snispoof_connect_port));
+    snispoof_fake_sni = new QLineEdit(settings->snispoof_fake_sni, box);
+    layout->addRow(tr("Default connect host/IP"), snispoof_connect_ip);
+    layout->addRow(tr("Default connect port"), snispoof_connect_port);
+    layout->addRow(tr("Fake SNI"), snispoof_fake_sni);
+
+    snispoof_cli_args = new QLineEdit(settings->snispoof_cli_args.isEmpty() ? QString("{config_path}") : settings->snispoof_cli_args, box);
+    layout->addRow(tr("CLI args"), snispoof_cli_args);
+
+    snispoof_config_json = new QPlainTextEdit(box);
+    snispoof_config_json->setMinimumHeight(120);
+    layout->addRow(tr("Config preview"), snispoof_config_json);
+
+    auto refreshPreview = [this] { updateSniSpoofJsonPreview(); };
+    connect(snispoof_listen_host, &QLineEdit::textChanged, this, refreshPreview);
+    connect(snispoof_listen_port, &QLineEdit::textChanged, this, refreshPreview);
+    connect(snispoof_connect_ip, &QLineEdit::textChanged, this, refreshPreview);
+    connect(snispoof_connect_port, &QLineEdit::textChanged, this, refreshPreview);
+    connect(snispoof_fake_sni, &QLineEdit::textChanged, this, refreshPreview);
+    updateSniSpoofJsonPreview();
+
+    ui->tab_4->layout()->addWidget(box);
+}
+
+void DialogBasicSettings::updateSniSpoofJsonPreview() {
+    if (snispoof_config_json == nullptr) return;
+    QJsonObject config;
+    config["LISTEN_HOST"] = snispoof_listen_host->text().trimmed();
+    config["LISTEN_PORT"] = snispoof_listen_port->text().toInt();
+    config["CONNECT_IP"] = snispoof_connect_ip->text().trimmed();
+    config["CONNECT_PORT"] = snispoof_connect_port->text().toInt();
+    config["FAKE_SNI"] = snispoof_fake_sni->text().trimmed();
+    snispoof_config_json->setPlainText(QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Indented)));
 }
 
 void DialogBasicSettings::applyRegexHighlighting() {
@@ -362,6 +438,21 @@ void DialogBasicSettings::accept() {
     Configs::dataManager->settingsRepo->xray_mux_concurrency = ui->xray_mux_concurrency->text().toInt();
     Configs::dataManager->settingsRepo->xray_mux_default_on = ui->xray_default_mux->isChecked();
     Configs::dataManager->settingsRepo->xray_vless_preference = static_cast<Configs::Xray::XrayVlessPreference>(ui->vless_xray_pref->currentIndex());
+
+    // SNI Spoof
+    Configs::dataManager->settingsRepo->snispoof_enabled = snispoof_enable->isChecked();
+    Configs::dataManager->settingsRepo->snispoof_binary_path = snispoof_binary_path->text().trimmed();
+    Configs::dataManager->settingsRepo->snispoof_listen_host = snispoof_listen_host->text().trimmed();
+    Configs::dataManager->settingsRepo->snispoof_listen_port = snispoof_listen_port->text().toInt();
+    Configs::dataManager->settingsRepo->snispoof_connect_ip = snispoof_connect_ip->text().trimmed();
+    Configs::dataManager->settingsRepo->snispoof_connect_port = snispoof_connect_port->text().toInt();
+    Configs::dataManager->settingsRepo->snispoof_fake_sni = snispoof_fake_sni->text().trimmed();
+    Configs::dataManager->settingsRepo->snispoof_cli_args = snispoof_cli_args->text().trimmed();
+    Configs::dataManager->settingsRepo->snispoof_config_json = snispoof_config_json->toPlainText().trimmed();
+    if (QJsonParseError parseError; QJsonDocument::fromJson(Configs::dataManager->settingsRepo->snispoof_config_json.toUtf8(), &parseError).isNull()) {
+        QMessageBox::warning(this, tr("SNI Spoof config"), tr("SNI Spoof config JSON is invalid: %1").arg(parseError.errorString()));
+        return;
+    }
 
     // Mux
     D_SAVE_INT(mux_concurrency)

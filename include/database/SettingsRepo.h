@@ -144,7 +144,7 @@ namespace Configs {
 
         // Socks & HTTP Inbound
         bool disable_mixed_inbound = false;
-        QString inbound_address = "127.0.0.1";
+        QString inbound_address = "0.0.0.0";
         int inbound_socks_port = 2080; // Mixed, actually
         bool random_inbound_port = false;
         QString custom_inbound = "{\"inbounds\": []}";
@@ -223,6 +223,18 @@ namespace Configs {
         int xray_mux_concurrency = 8;
         bool xray_mux_default_on = false;
         Xray::XrayVlessPreference xray_vless_preference = Xray::XhttpOnly;
+
+        // SNI Spoof
+        bool snispoof_enabled = true;
+        QString snispoof_binary_path = "";
+        QString snispoof_config_json = "";
+        QString snispoof_listen_host = "127.0.0.1";
+        int snispoof_listen_port = 40443;
+        QString snispoof_connect_ip = "104.19.229.21";
+        int snispoof_connect_port = 443;
+        QString snispoof_fake_sni = "www.hcaptcha.com";
+        QString snispoof_cli_args = "{config_path}";
+        int snispoof_start_timeout_ms = 3000;
 
         // Extra Core Paths
         QStringList extraCorePaths = {};

@@ -6,6 +6,7 @@
 
 #include "include/configs/sub/GroupUpdater.hpp"
 #include "include/sys/Process.hpp"
+#include "include/sys/SniSpoofProcess.hpp"
 #include "include/sys/AutoRun.hpp"
 
 #include "include/ui/setting/ThemeManager.hpp"
@@ -64,12 +65,16 @@
 #include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QStyleHints>
 #endif
 #include <QFileDialog>
 #include <QToolTip>
 #include <QMimeData>
+#include <QVBoxLayout>
 #include <random>
 #include <3rdparty/QHotkey/qhotkey.h>
 #include <3rdparty/qv2ray/v2/proxy/QvProxyConfigurator.hpp>
@@ -113,6 +118,122 @@ bool MainWindow::verify_core_pid(QLocalSocket *socket) {
     Q_UNUSED(socket)
     return true;
 #endif
+}
+
+void MainWindow::setupSniSpoofUi() {
+    snispoof_process = new Configs_sys::SniSpoofProcess(this);
+    connect(snispoof_process, &Configs_sys::SniSpoofProcess::LogLine, this, [=, this](const QString &line) {
+        MW_show_log(line);
+    });
+    connect(snispoof_process, &Configs_sys::SniSpoofProcess::StateChanged, this, [=, this] {
+        updateSniSpoofStatus();
+    });
+    connect(snispoof_process, &Configs_sys::SniSpoofProcess::Crashed, this, [=, this](const QString &message) {
+        MW_show_log("[SNI error] " + message);
+        runOnUiThread([=, this] { MessageBoxWarning(tr("SNI Spoof crashed"), message); });
+        if (runningViaSniSpoof && running != nullptr) profile_stop(true, false, true);
+    });
+
+    snispoof_toggle = new QCheckBox(tr("SNI Spoof"), this);
+    snispoof_toggle->setToolTip(tr("Start or stop the bundled SNI-Spoofing-Go local proxy"));
+    snispoof_status = new QLabel(this);
+    snispoof_status->setText(tr("Stopped"));
+
+    if (auto *topControls = ui->centralwidget->findChild<QVBoxLayout*>("verticalLayout_4")) {
+        topControls->addWidget(snispoof_toggle);
+        topControls->addWidget(snispoof_status);
+    }
+
+    connect(snispoof_toggle, &QCheckBox::clicked, this, [=, this](bool checked) {
+        if (checked) {
+            QString error;
+            if (!startSniSpoof(Configs::dataManager->settingsRepo->snispoof_connect_ip,
+                               Configs::dataManager->settingsRepo->snispoof_connect_port,
+                               error)) {
+                MessageBoxWarning(tr("SNI Spoof"), error);
+                snispoof_toggle->setChecked(false);
+            }
+        } else {
+            stopSniSpoof(false);
+        }
+        updateSniSpoofStatus();
+    });
+    updateSniSpoofStatus();
+}
+
+void MainWindow::updateSniSpoofStatus() {
+    if (snispoof_process == nullptr || snispoof_status == nullptr || snispoof_toggle == nullptr) return;
+    const bool isRunning = snispoof_process->IsRunning();
+    snispoof_toggle->blockSignals(true);
+    snispoof_toggle->setChecked(isRunning);
+    snispoof_toggle->blockSignals(false);
+    snispoof_status->setText(isRunning ? tr("SNI: Running") : tr("SNI: Stopped"));
+    snispoof_status->setStyleSheet(isRunning ? "color: #2ca02c;" : "color: #d62728;");
+}
+
+QString MainWindow::resolveSniSpoofBinaryPath() const {
+    const auto configured = Configs::dataManager->settingsRepo->snispoof_binary_path.trimmed();
+    if (!configured.isEmpty()) return configured;
+    return QApplication::applicationDirPath() + "/snispoof/snispoof";
+}
+
+QString MainWindow::resolveSniSpoofConfigPath() const {
+    return QDir::current().absoluteFilePath("snispoof-config.json");
+}
+
+bool MainWindow::writeSniSpoofConfig(const QString &connectHost, int connectPort, QString &configPath, QString &error) const {
+    auto *settings = Configs::dataManager->settingsRepo.get();
+    QJsonObject config;
+    config["LISTEN_HOST"] = settings->snispoof_listen_host;
+    config["LISTEN_PORT"] = settings->snispoof_listen_port;
+    config["CONNECT_IP"] = connectHost;
+    config["CONNECT_PORT"] = connectPort;
+    config["FAKE_SNI"] = settings->snispoof_fake_sni;
+
+    configPath = resolveSniSpoofConfigPath();
+    QSaveFile file(configPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        error = tr("Failed to write SNI Spoof config: %1").arg(file.errorString());
+        return false;
+    }
+    file.write(QJsonDocument(config).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        error = tr("Failed to save SNI Spoof config: %1").arg(file.errorString());
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::startSniSpoof(const QString &connectHost, int connectPort, QString &error) {
+    if (thread() != QThread::currentThread()) {
+        bool ok = false;
+        runOnUiThread([&] { ok = startSniSpoof(connectHost, connectPort, error); }, true);
+        return ok;
+    }
+    if (!Configs::dataManager->settingsRepo->snispoof_enabled) {
+        error = tr("SNI Spoof integration is disabled in Settings.");
+        return false;
+    }
+    QString configPath;
+    if (!writeSniSpoofConfig(connectHost, connectPort, configPath, error)) return false;
+
+    return snispoof_process->Start(resolveSniSpoofBinaryPath(),
+                                   configPath,
+                                   Configs::dataManager->settingsRepo->snispoof_cli_args,
+                                   Configs::dataManager->settingsRepo->snispoof_listen_host,
+                                   Configs::dataManager->settingsRepo->snispoof_listen_port,
+                                   Configs::dataManager->settingsRepo->snispoof_start_timeout_ms,
+                                   error);
+}
+
+void MainWindow::stopSniSpoof(bool block) {
+    if (thread() != QThread::currentThread()) {
+        runOnUiThread([=, this] { stopSniSpoof(block); }, block);
+        return;
+    }
+    if (snispoof_process == nullptr) return;
+    snispoof_process->Stop(block);
+    updateSniSpoofStatus();
 }
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow) {
@@ -184,6 +305,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     MW_show_log = [=,this](const QString &log) {
         append_log(log);
     };
+    setupSniSpoofUi();
 
     // Listen port if random
     if (Configs::dataManager->settingsRepo->random_inbound_port)
@@ -262,6 +384,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     parallelCoreCallPool->setMaxThreadCount(10); // constant value
     //
     connect(ui->menu_start, &QAction::triggered, this, [=,this]() { profile_start(); });
+    connect(ui->menu_connect_snispoof, &QAction::triggered, this, [=,this]() { profile_start_via_snispoof(); });
     connect(ui->menu_stop, &QAction::triggered, this, [=,this]() { profile_stop(false, false, true); });
     connect(ui->tabWidget->tabBar(), &QTabBar::tabMoved, this, [=,this](int from, int to) {
         // use tabData to track tab & gid
@@ -297,7 +420,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     }
 
     // software_name
-    software_name = "Throne";
+    software_name = "Throne SNI";
     software_core_name = "sing-box";
     //
     if (auto dashDir = QDir("dashboard"); !dashDir.exists() && QDir().mkdir("dashboard")) {
@@ -744,12 +867,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             ui->actionUrl_Test_Selected->setEnabled(false);
             ui->menu_resolve_selected->setEnabled(false);
             ui->actionResolve_Selected_Out_IP->setEnabled(false);
+            ui->menu_connect_snispoof->setEnabled(false);
         } else
         {
             ui->actionSpeedtest_Selected->setEnabled(true);
             ui->actionUrl_Test_Selected->setEnabled(true);
             ui->menu_resolve_selected->setEnabled(true);
             ui->actionResolve_Selected_Out_IP->setEnabled(true);
+            ui->menu_connect_snispoof->setEnabled(Configs::dataManager->settingsRepo->snispoof_enabled && selected.count() == 1);
         }
         if (!speedtestRunning.tryLock()) {
             ui->menu_server->addAction(ui->menu_stop_testing);
@@ -1460,6 +1585,7 @@ void MainWindow::prepare_exit()
     //
     Configs::dataManager->settingsRepo->noSave = true; // don't change Configs::dataManager->settingsRepo after this line
     profile_stop(false, true);
+    stopSniSpoof(true);
 
     runOnThread([=, this]()
     {

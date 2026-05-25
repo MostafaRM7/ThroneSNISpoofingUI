@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
         if (arguments.size() > appdataIndex + 1 && !arguments.at(appdataIndex + 1).startsWith("-")) {
             appDataDir = arguments.at(appdataIndex + 1);
         }
-        QApplication::setApplicationName("Throne");
+        QApplication::setApplicationName("Throne SNI");
         if (!appDataDir.isEmpty()) {
             wd.setPath(appDataDir);
         } else {
